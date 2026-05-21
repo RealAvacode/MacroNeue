@@ -1,6 +1,9 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
+import dynamic from "next/dynamic";
+
+const WorldViewer = dynamic(() => import("@/components/WorldViewer"), { ssr: false });
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -181,6 +184,7 @@ export default function Home() {
   const [wgStatus, setWgStatus] = useState<WorldgenStatus | null>(null);
   const [panoNote, setPanoNote] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [viewerOpen, setViewerOpen] = useState(false);
 
   const fileRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -455,13 +459,27 @@ export default function Home() {
             )}
 
             {panoramaUrl && (
-              <a
-                href={panoramaUrl}
-                download="panorama.svg"
-                className="block text-center text-xs text-[#6366f1] hover:text-[#a5b4fc] mb-3 transition-colors"
-              >
-                ↓ Download panorama
-              </a>
+              <div className="flex items-center gap-2 mb-3">
+                <a
+                  href={panoramaUrl}
+                  download="panorama.svg"
+                  className="text-xs text-[#6366f1] hover:text-[#a5b4fc] transition-colors"
+                >
+                  ↓ Download
+                </a>
+                <span className="text-[#2d2f45]">·</span>
+                <button
+                  onClick={() => setViewerOpen(true)}
+                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-all"
+                  style={{ background: "linear-gradient(135deg,#4f46e5,#7c3aed)", color: "white" }}
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M21 12a9 9 0 11-18 0 9 9 0 0118 0zM9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+                  </svg>
+                  View in 3D
+                </button>
+              </div>
             )}
 
             <button
@@ -530,9 +548,22 @@ export default function Home() {
             <Card>
               <StageBadge>Stage 4 – Download 3D Assets</StageBadge>
 
-              <p className="text-sm text-[#a5b4fc] mb-4">
-                Your world is ready. Download the 3D assets to import into Blender, Unreal Engine, or any DCC tool.
-              </p>
+              <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+                <p className="text-sm text-[#a5b4fc]">
+                  Your world is ready. Explore it below or download the 3D assets.
+                </p>
+                <button
+                  onClick={() => setViewerOpen(true)}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold text-sm text-white"
+                  style={{ background: "linear-gradient(135deg,#4f46e5,#7c3aed)" }}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064" />
+                  </svg>
+                  Explore World
+                </button>
+              </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {wgStatus.outputs.map((out) => (
@@ -560,6 +591,14 @@ export default function Home() {
             </Card>
           </div>
         )}
+
+        {/* 3D Viewer */}
+        <WorldViewer
+          panoramaUrl={panoramaUrl}
+          outputs={wgStatus?.outputs ?? []}
+          isOpen={viewerOpen}
+          onClose={() => setViewerOpen(false)}
+        />
 
         {/* Footer */}
         <footer className="text-center text-xs text-[#3d4166] pb-6">
