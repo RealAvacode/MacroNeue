@@ -1,0 +1,25 @@
+# App UI
+gradio>=4.44.0
+
+# Image handling
+Pillow>=10.0.0
+numpy>=1.26.0
+
+# ── HY-World-2.0 core (installed via setup.sh) ──────────────────────────────
+# The packages below are listed here for reference; setup.sh handles their
+# installation because several require custom build steps.
+#
+# torch==2.7.1
+# torchvision==0.22.1
+# diffusers==0.36.0
+# transformers==5.2.0
+# accelerate
+# peft==0.18.1
+# safetensors
+# einops
+# omegaconf
+# open3d==0.18.0
+# trimesh
+# plyfile
+# opencv-python==4.10.0.84
+# loguru==0.7.3
