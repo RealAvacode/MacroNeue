@@ -8,6 +8,7 @@ const WorldViewer = dynamic(() => import("@/components/WorldViewer"), { ssr: fal
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Stage = "idle" | "generating-panorama" | "panorama-ready" | "worldgen-running" | "worldgen-done";
+type ReconStage = "idle" | "running" | "done";
 
 interface WorldgenStatus {
   stage: number;
@@ -16,6 +17,21 @@ interface WorldgenStatus {
   overallProgress: number;
   log: string;
   outputs: { name: string; label: string }[];
+}
+
+interface ReconStatus {
+  stageName: string;
+  stageIndex: number;
+  stageProgress: number;
+  overallProgress: number;
+  log: string;
+  outputs: {
+    depthUrl?: string;
+    normalUrl?: string;
+    plyFile?: string;
+    splatFile?: string;
+    camFile?: string;
+  } | null;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -186,6 +202,11 @@ export default function Home() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [viewerOpen, setViewerOpen] = useState(false);
 
+  // WorldMirror reconstruction
+  const [reconStage, setReconStage] = useState<ReconStage>("idle");
+  const [reconStatus, setReconStatus] = useState<ReconStatus | null>(null);
+  const reconPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const fileRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const logRef = useRef<HTMLPreElement>(null);
@@ -265,16 +286,41 @@ export default function Home() {
     }, 1500);
   }
 
+  // ── WorldMirror reconstruction ────────────────────────────────────────────
+  async function runReconstruction() {
+    if (imageFiles.length < 2) return;
+    setReconStage("running");
+    setReconStatus(null);
+
+    const fd = new FormData();
+    imageFiles.forEach((f, i) => fd.append(`image_${i}`, f));
+    fd.append("imageCount", String(imageFiles.length));
+
+    const res = await fetch("/api/reconstruct", { method: "POST", body: fd });
+    const { jobId: rJobId } = await res.json();
+
+    reconPollRef.current = setInterval(async () => {
+      const r = await fetch(`/api/reconstruct?jobId=${rJobId}`);
+      const data: ReconStatus & { status: string } = await r.json();
+      setReconStatus(data);
+      if (data.status === "done") {
+        clearInterval(reconPollRef.current!);
+        setReconStage("done");
+      }
+    }, 1500);
+  }
+
   // Auto-scroll log
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [wgStatus?.log]);
 
-  // Cleanup object URLs and poll on unmount
+  // Cleanup object URLs and polls on unmount
   useEffect(() => {
     return () => {
       imagePreviews.forEach((u) => URL.revokeObjectURL(u));
       if (pollRef.current) clearInterval(pollRef.current);
+      if (reconPollRef.current) clearInterval(reconPollRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -309,12 +355,13 @@ export default function Home() {
         {/* Pipeline breadcrumb */}
         <div className="max-w-5xl mx-auto px-4 mb-6">
           <div className="flex gap-2 flex-wrap text-xs text-[#a5b4fc]">
-            {["1. Upload Images", "2. Generate Panorama", "3. Build 3D World", "4. Download Assets"].map((s, i) => {
+            {["1. Upload Images", "2. WorldMirror Reconstruction", "3. Generate Panorama", "4. Build 3D World", "5. Download Assets"].map((s, i) => {
               const active =
-                (i === 0 && stage !== "idle") ||
-                (i === 1 && ["panorama-ready", "worldgen-running", "worldgen-done"].includes(stage)) ||
-                (i === 2 && ["worldgen-running", "worldgen-done"].includes(stage)) ||
-                (i === 3 && stage === "worldgen-done");
+                (i === 0 && imageFiles.length > 0) ||
+                (i === 1 && reconStage !== "idle") ||
+                (i === 2 && ["panorama-ready", "worldgen-running", "worldgen-done"].includes(stage)) ||
+                (i === 3 && ["worldgen-running", "worldgen-done"].includes(stage)) ||
+                (i === 4 && stage === "worldgen-done");
               return (
                 <div key={i} className="flex items-center gap-2">
                   {i > 0 && <span className="text-[#3d4166]">→</span>}
@@ -497,7 +544,140 @@ export default function Home() {
           </Card>
         </div>
 
-        {/* ── Stage 3: World generation ── */}
+        {/* ── Stage 2: WorldMirror Reconstruction ── */}
+        {imageFiles.length >= 2 && (
+          <div className="max-w-5xl mx-auto px-4 mb-6">
+            <Card>
+              <StageBadge>Stage 2 – WorldMirror Reconstruction</StageBadge>
+
+              <p className="text-xs text-[#a5b4fc] mb-4">
+                Runs <strong>WorldMirror-2</strong> on all {imageFiles.length} uploaded images to produce
+                per-view depth maps, surface normals, camera parameters, a point cloud, and Gaussian splats.
+              </p>
+
+              {/* Action row */}
+              <div className="flex items-center gap-3 mb-4">
+                <button
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold text-sm text-white transition-opacity"
+                  style={{
+                    background: "linear-gradient(135deg,#0f766e,#0d9488)",
+                    opacity: reconStage === "running" ? 0.4 : 1,
+                    cursor: reconStage === "running" ? "not-allowed" : "pointer",
+                  }}
+                  disabled={reconStage === "running"}
+                  onClick={runReconstruction}
+                >
+                  {reconStage === "running" ? (
+                    <>
+                      <Spinner /> Reconstructing…
+                    </>
+                  ) : reconStage === "done" ? (
+                    "↺ Re-run Reconstruction"
+                  ) : (
+                    "Run WorldMirror Reconstruction →"
+                  )}
+                </button>
+                {reconStage === "done" && (
+                  <span className="text-xs text-emerald-400">✓ Complete</span>
+                )}
+              </div>
+
+              {/* Progress */}
+              {reconStatus && reconStage !== "idle" && (
+                <>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs text-[#a5b4fc]">{reconStatus.stageName}</span>
+                    <span className="text-xs text-teal-400">{Math.round(reconStatus.overallProgress * 100)}%</span>
+                  </div>
+                  <div className="h-1.5 bg-[#1e2030] rounded-full overflow-hidden mb-4">
+                    <div
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{
+                        width: `${Math.round(reconStatus.overallProgress * 100)}%`,
+                        background: "linear-gradient(90deg,#0f766e,#2dd4bf)",
+                      }}
+                    />
+                  </div>
+
+                  {/* Stage chips */}
+                  <div className="flex gap-2 flex-wrap mb-4">
+                    {["Feature Extraction & Depth", "Surface Normals & Cameras", "Point Cloud Assembly", "Gaussian Splat Export"].map((s, i) => {
+                      const done = i < reconStatus.stageIndex || reconStage === "done";
+                      const active = i === reconStatus.stageIndex && reconStage !== "done";
+                      return (
+                        <span
+                          key={i}
+                          className="text-xs rounded-full px-2.5 py-0.5"
+                          style={{
+                            background: done ? "#1e3a3a" : active ? "#0d2a2a" : "#12141f",
+                            border: done ? "1px solid #10b981" : active ? "1px solid #2dd4bf" : "1px solid #2d2f45",
+                            color: done ? "#6ee7b7" : active ? "#2dd4bf" : "#4a4e6e",
+                          }}
+                        >
+                          {done ? "✓ " : active ? "⟳ " : ""}{s}
+                        </span>
+                      );
+                    })}
+                  </div>
+
+                  {/* Log */}
+                  <pre
+                    className="text-xs rounded-lg p-3 overflow-auto mb-4"
+                    style={{ background: "#0c0e18", border: "1px solid #2d2f45", color: "#2dd4bf", maxHeight: 140, fontFamily: "monospace" }}
+                  >
+                    {reconStatus.log}
+                  </pre>
+                </>
+              )}
+
+              {/* Outputs */}
+              {reconStage === "done" && reconStatus?.outputs && (
+                <div>
+                  <p className="text-xs text-[#a5b4fc] mb-3 font-medium">Reconstruction outputs</p>
+
+                  {/* Depth + normal thumbnails */}
+                  <div className="grid grid-cols-2 gap-3 mb-4">
+                    {[
+                      { url: reconStatus.outputs.depthUrl,  label: "Depth Map" },
+                      { url: reconStatus.outputs.normalUrl, label: "Normal Map" },
+                    ].map(({ url, label }) =>
+                      url ? (
+                        <div key={label} className="rounded-lg overflow-hidden" style={{ background: "#0c0e18", border: "1px solid #2d2f45" }}>
+                          <img src={url} alt={label} className="w-full object-cover" style={{ maxHeight: 120 }} />
+                          <p className="text-[10px] text-center text-[#4a4e6e] py-1">{label}</p>
+                        </div>
+                      ) : null
+                    )}
+                  </div>
+
+                  {/* Download buttons */}
+                  <div className="flex gap-2 flex-wrap">
+                    {[
+                      { file: reconStatus.outputs.plyFile,   label: "Point Cloud (.ply)" },
+                      { file: reconStatus.outputs.splatFile, label: "Gaussian Splat (.ply)" },
+                      { file: reconStatus.outputs.camFile,   label: "Camera Params (.json)" },
+                    ].filter(({ file }) => !!file).map(({ file, label }) => (
+                      <button
+                        key={file}
+                        className="text-xs px-3 py-1.5 rounded-lg transition-all"
+                        style={{ background: "#0d2a2a", border: "1px solid #0f766e", color: "#2dd4bf", cursor: "pointer" }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = "#134e4a")}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = "#0d2a2a")}
+                      >
+                        ↓ {label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-[#4a4e6e] mt-2">
+                    Prototype — real files written to <code>outputs/</code> on the GPU server.
+                  </p>
+                </div>
+              )}
+            </Card>
+          </div>
+        )}
+
+        {/* ── Stage 4: World generation ── */}
         {(stage === "worldgen-running" || stage === "worldgen-done") && wgStatus && (
           <div className="max-w-5xl mx-auto px-4 mb-6">
             <Card>

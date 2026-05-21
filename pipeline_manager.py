@@ -158,7 +158,7 @@ def reconstruct_world(
     out_dir = OUTPUT_DIR / job_id / "reconstruction"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    pipeline(str(images_dir), output_dir=str(out_dir))
+    pipeline(str(images_dir), output_path=str(out_dir))
     return out_dir
 
 
