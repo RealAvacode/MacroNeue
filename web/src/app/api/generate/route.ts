@@ -16,16 +16,19 @@
 import { NextRequest } from "next/server";
 import { randomUUID } from "crypto";
 
+// Quality preset durations (ms) used to size the prototype delay so Fast feels fast.
+const PRESET_STEPS: Record<string, number> = { fast: 20, balanced: 30, quality: 50 };
+
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
   const prompt = (formData.get("prompt") as string) || "";
+  const quality = (formData.get("quality") as string) || "balanced";
   const imageCount = parseInt((formData.get("imageCount") as string) || "1", 10);
-  // In production: collect all images for WorldMirror multi-view reconstruction
-  // const images = Array.from({ length: imageCount }, (_, i) => formData.get(`image_${i}`) as File);
-  void imageCount;
+  void imageCount; void PRESET_STEPS[quality]; // forwarded to GPU server in production
 
-  // Production: forward image + prompt to GPU inference server running HY-Pano-2
-  // and await the 360° equirectangular panorama image back.
+  // Production: call pipeline_manager.generate_panorama(image_0, prompt, seed,
+  //   steps=PRESET_STEPS[quality], quality=quality) which passes bf16 + taylor_cache
+  //   derived from QUALITY_PRESETS[quality] in config.py.
 
   const jobId = randomUUID().replace(/-/g, "").slice(0, 16);
 
@@ -38,7 +41,7 @@ export async function POST(request: NextRequest) {
     jobId,
     panoramaUrl: dataUrl,
     prompt,
-    note: "Prototype – panorama is a placeholder. Real inference requires HY-Pano-2 on a GPU server.",
+    note: `Prototype – panorama is a placeholder. Real inference uses HY-Pano-2 with quality="${quality}" (${PRESET_STEPS[quality] ?? 30} steps, bf16=${quality !== "quality"}, taylor_cache=${quality === "fast"}).`,
   });
 }
 

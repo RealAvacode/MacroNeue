@@ -191,7 +191,7 @@ export default function Home() {
   const [stage, setStage] = useState<Stage>("idle");
   const [prompt, setPrompt] = useState("");
   const [seed, setSeed] = useState(42);
-  const [steps, setSteps] = useState(30);
+  const [quality, setQuality] = useState<"fast" | "balanced" | "quality">("balanced");
   const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [dragOver, setDragOver] = useState(false);
@@ -252,7 +252,7 @@ export default function Home() {
     fd.append("imageCount", String(imageFiles.length));
     fd.append("prompt", prompt);
     fd.append("seed", String(seed));
-    fd.append("steps", String(steps));
+    fd.append("quality", quality);
 
     const res = await fetch("/api/generate", { method: "POST", body: fd });
     const data = await res.json();
@@ -295,6 +295,7 @@ export default function Home() {
     const fd = new FormData();
     imageFiles.forEach((f, i) => fd.append(`image_${i}`, f));
     fd.append("imageCount", String(imageFiles.length));
+    fd.append("quality", quality);
 
     const res = await fetch("/api/reconstruct", { method: "POST", body: fd });
     const { jobId: rJobId } = await res.json();
@@ -427,7 +428,33 @@ export default function Home() {
               {showAdvanced ? "▾" : "▸"} Advanced options
             </button>
             {showAdvanced && (
-              <div className="mb-3 space-y-2 pl-3 border-l border-[#2d2f45]">
+              <div className="mb-3 space-y-3 pl-3 border-l border-[#2d2f45]">
+                {/* Quality preset */}
+                <div>
+                  <label className="block text-xs text-[#a5b4fc] mb-1.5">Quality preset</label>
+                  <div className="flex rounded-lg overflow-hidden border border-[#2d2f45] w-fit">
+                    {(["fast", "balanced", "quality"] as const).map((q) => (
+                      <button
+                        key={q}
+                        onClick={() => setQuality(q)}
+                        className="px-3 py-1.5 text-xs font-medium capitalize transition-colors"
+                        style={{
+                          background: quality === q ? "#4f46e5" : "#12141f",
+                          color: quality === q ? "white" : "#6b7280",
+                          borderRight: q !== "quality" ? "1px solid #2d2f45" : "none",
+                        }}
+                      >
+                        {q === "fast" ? "⚡ Fast" : q === "balanced" ? "⚖ Balanced" : "✦ Quality"}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-[#4a4e6e] mt-1">
+                    {quality === "fast"     && "20 steps · BF16 · Taylor cache · 512px — fastest, lower detail"}
+                    {quality === "balanced" && "30 steps · BF16 · 768px — good speed with solid quality (default)"}
+                    {quality === "quality"  && "50 steps · full precision · 952px — best quality, slowest"}
+                  </p>
+                </div>
+                {/* Seed */}
                 <div className="flex items-center gap-3">
                   <label className="text-xs text-[#a5b4fc] w-20">Seed</label>
                   <input
@@ -437,15 +464,6 @@ export default function Home() {
                     value={seed}
                     onChange={(e) => setSeed(Number(e.target.value))}
                   />
-                </div>
-                <div className="flex items-center gap-3">
-                  <label className="text-xs text-[#a5b4fc] w-20">Steps</label>
-                  <input
-                    type="range" min={10} max={80} value={steps}
-                    onChange={(e) => setSteps(Number(e.target.value))}
-                    className="flex-1"
-                  />
-                  <span className="text-xs text-[#a5b4fc] w-6 text-right">{steps}</span>
                 </div>
               </div>
             )}
@@ -553,6 +571,9 @@ export default function Home() {
               <p className="text-xs text-[#a5b4fc] mb-4">
                 Runs <strong>WorldMirror-2</strong> on all {imageFiles.length} uploaded images to produce
                 per-view depth maps, surface normals, camera parameters, a point cloud, and Gaussian splats.
+                {" "}<span className="text-teal-400 font-medium capitalize">
+                  {quality === "fast" ? "⚡ Fast" : quality === "balanced" ? "⚖ Balanced" : "✦ Quality"} preset active
+                </span> — change in Advanced Options.
               </p>
 
               {/* Action row */}

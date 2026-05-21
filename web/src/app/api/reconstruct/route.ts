@@ -18,28 +18,42 @@ import { randomUUID } from "crypto";
 interface Job {
   startedAt: number;
   imageCount: number;
+  quality: string;
+  totalMs: number;
 }
 
 const jobs = new Map<string, Job>();
 
-const STAGES = [
-  { label: "Feature Extraction & Depth",        durationMs: 12_000 },
-  { label: "Surface Normals & Camera Estimation", durationMs: 10_000 },
-  { label: "Point Cloud Assembly",               durationMs:  8_000 },
-  { label: "Gaussian Splat Export",              durationMs: 10_000 },
+// Stage labels (order fixed; durations scale with quality preset)
+const STAGE_LABELS = [
+  "Feature Extraction & Depth",
+  "Surface Normals & Camera Estimation",
+  "Point Cloud Assembly",
+  "Gaussian Splat Export",
 ];
-const TOTAL_MS = STAGES.reduce((s, st) => s + st.durationMs, 0);
+
+// Simulated total durations per preset (prototype only)
+const PRESET_TOTAL_MS: Record<string, number> = {
+  fast:     20_000,
+  balanced: 40_000,
+  quality:  70_000,
+};
 
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
   const imageCount = parseInt((formData.get("imageCount") as string) || "0", 10);
+  const quality = (formData.get("quality") as string) || "balanced";
 
   if (imageCount < 2) {
     return Response.json({ error: "WorldMirror requires at least 2 images." }, { status: 400 });
   }
 
+  const totalMs = PRESET_TOTAL_MS[quality] ?? PRESET_TOTAL_MS.balanced;
   const jobId = randomUUID().replace(/-/g, "").slice(0, 16);
-  jobs.set(jobId, { startedAt: Date.now(), imageCount });
+  jobs.set(jobId, { startedAt: Date.now(), imageCount, quality, totalMs });
+
+  // Production: call pipeline_manager.reconstruct_world(images_dir, quality=quality)
+  // which passes target_size, enable_bf16, disable_heads from QUALITY_PRESETS[quality].
 
   return Response.json({ jobId, status: "running" });
 }
@@ -52,13 +66,13 @@ export async function GET(request: NextRequest) {
   if (!job) return Response.json({ error: "job not found" }, { status: 404 });
 
   const elapsed = Date.now() - job.startedAt;
-  const { stageIndex, stageProgress, overallProgress, done } = computeProgress(elapsed);
-  const log = buildLog(stageIndex, stageProgress, done, job.imageCount).join("\n");
+  const { stageIndex, stageProgress, overallProgress, done } = computeProgress(elapsed, job.totalMs);
+  const log = buildLog(stageIndex, stageProgress, done, job.imageCount, job.quality).join("\n");
 
   return Response.json({
     jobId,
     status: done ? "done" : "running",
-    stageName: done ? "Complete" : STAGES[stageIndex]?.label ?? "Done",
+    stageName: done ? "Complete" : STAGE_LABELS[stageIndex] ?? "Done",
     stageIndex,
     stageProgress,
     overallProgress,
@@ -69,37 +83,35 @@ export async function GET(request: NextRequest) {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function computeProgress(elapsedMs: number) {
-  if (elapsedMs >= TOTAL_MS) {
-    return { stageIndex: STAGES.length - 1, stageProgress: 1, overallProgress: 1, done: true };
+function computeProgress(elapsedMs: number, totalMs: number) {
+  const n = STAGE_LABELS.length;
+  if (elapsedMs >= totalMs) {
+    return { stageIndex: n - 1, stageProgress: 1, overallProgress: 1, done: true };
   }
-  let remaining = elapsedMs;
-  for (let i = 0; i < STAGES.length; i++) {
-    if (remaining < STAGES[i].durationMs) {
-      return {
-        stageIndex: i,
-        stageProgress: remaining / STAGES[i].durationMs,
-        overallProgress: elapsedMs / TOTAL_MS,
-        done: false,
-      };
-    }
-    remaining -= STAGES[i].durationMs;
-  }
-  return { stageIndex: STAGES.length - 1, stageProgress: 1, overallProgress: 1, done: true };
+  const stageDuration = totalMs / n;
+  const stageIndex = Math.min(Math.floor(elapsedMs / stageDuration), n - 1);
+  const stageProgress = (elapsedMs % stageDuration) / stageDuration;
+  return { stageIndex, stageProgress, overallProgress: elapsedMs / totalMs, done: false };
 }
 
-function buildLog(stage: number, progress: number, done: boolean, imageCount: number): string[] {
+function buildLog(stage: number, progress: number, done: boolean, imageCount: number, quality: string): string[] {
   const ts = () => new Date().toISOString().slice(11, 23);
+  const presetInfo: Record<string, string> = {
+    fast:     "target_size=512, bf16=on, taylor_cache=on, heads=depth+camera",
+    balanced: "target_size=768, bf16=on, taylor_cache=off, heads=depth+normal+camera",
+    quality:  "target_size=952, bf16=off, taylor_cache=off, heads=all",
+  };
   const lines = [
     `[${ts()}] WorldMirror-2 reconstruction started`,
+    `[${ts()}] Quality: ${quality} — ${presetInfo[quality] ?? ""}`,
     `[${ts()}] Input: ${imageCount} images`,
     `[${ts()}] Loading model weights…`,
   ];
   for (let i = 0; i <= stage; i++) {
     if (i < stage || done) {
-      lines.push(`[${ts()}] ${STAGES[i].label} — complete ✓`);
+      lines.push(`[${ts()}] ${STAGE_LABELS[i]} — complete ✓`);
     } else {
-      lines.push(`[${ts()}] ${STAGES[i].label} — ${Math.round(progress * 100)}% …`);
+      lines.push(`[${ts()}] ${STAGE_LABELS[i]} — ${Math.round(progress * 100)}% …`);
     }
   }
   if (done) {

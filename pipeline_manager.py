@@ -28,6 +28,8 @@ from config import (
     DEFAULT_SEED,
     DEFAULT_PANO_STEPS,
     DEFAULT_PANO_PROMPT,
+    QUALITY_PRESETS,
+    DEFAULT_QUALITY,
     LLM_ADDR,
     LLM_PORT,
     LLM_NAME,
@@ -71,11 +73,13 @@ def system_status() -> dict:
 # ---------------------------------------------------------------------------
 
 _pano_pipeline = None
+_pano_pipeline_key: Optional[str] = None  # tracks (use_qwen, enable_bf16) so we reload on change
 
 
-def _load_pano_pipeline(use_qwen: bool = False):
-    global _pano_pipeline
-    if _pano_pipeline is not None:
+def _load_pano_pipeline(use_qwen: bool = False, enable_bf16: bool = False):
+    global _pano_pipeline, _pano_pipeline_key
+    key = f"qwen={use_qwen},bf16={enable_bf16}"
+    if _pano_pipeline is not None and _pano_pipeline_key == key:
         return _pano_pipeline
 
     hyworld_dir = Path("HY-World-2.0/hyworld2/panogen")
@@ -86,15 +90,21 @@ def _load_pano_pipeline(use_qwen: bool = False):
 
     sys.path.insert(0, str(hyworld_dir))
 
+    import torch
+    dtype = torch.bfloat16 if enable_bf16 else torch.float32
+
     if use_qwen:
         from pipeline_with_qwen_image import HunyuanPanoPipeline
         _pano_pipeline = HunyuanPanoPipeline.from_pretrained(
-            lora_path=HF_MODEL_ID, lora_subfolder="HY-Pano-2.0"
+            lora_path=HF_MODEL_ID, lora_subfolder="HY-Pano-2.0", torch_dtype=dtype
         )
     else:
         from pipeline import HunyuanPanoPipeline  # type: ignore
-        _pano_pipeline = HunyuanPanoPipeline.from_pretrained(HF_MODEL_ID)
+        _pano_pipeline = HunyuanPanoPipeline.from_pretrained(
+            HF_MODEL_ID, torch_dtype=dtype
+        )
 
+    _pano_pipeline_key = key
     return _pano_pipeline
 
 
@@ -104,10 +114,17 @@ def generate_panorama(
     seed: int = DEFAULT_SEED,
     steps: int = DEFAULT_PANO_STEPS,
     use_qwen: bool = False,
+    quality: str = DEFAULT_QUALITY,
     job_id: Optional[str] = None,
 ) -> Tuple[Image.Image, Path]:
     """Return (panorama PIL image, saved path)."""
-    pipeline = _load_pano_pipeline(use_qwen=use_qwen)
+    preset = QUALITY_PRESETS.get(quality, QUALITY_PRESETS[DEFAULT_QUALITY])
+    enable_bf16 = preset["bf16"]
+    use_taylor_cache = preset["taylor_cache"]
+    # Allow caller to override steps; fall back to preset
+    effective_steps = steps if steps != DEFAULT_PANO_STEPS else preset["pano_steps"]
+
+    pipeline = _load_pano_pipeline(use_qwen=use_qwen, enable_bf16=enable_bf16)
 
     job_id = job_id or uuid.uuid4().hex
     job_dir = OUTPUT_DIR / job_id
@@ -120,7 +137,9 @@ def generate_panorama(
         str(input_path),
         prompt=prompt,
         seed=seed,
-        diff_infer_steps=steps,
+        diff_infer_steps=effective_steps,
+        use_taylor_cache=use_taylor_cache,
+        taylor_cache_interval=preset["taylor_cache_interval"],
     )
 
     pano_path = job_dir / "panorama.png"
@@ -148,17 +167,31 @@ def _load_mirror_pipeline():
 def reconstruct_world(
     images_dir: Path,
     job_id: Optional[str] = None,
+    quality: str = DEFAULT_QUALITY,
 ) -> Path:
     """
     Run WorldMirror on a directory of images.
     Returns path to the output directory containing point clouds / 3DGS.
     """
+    preset = QUALITY_PRESETS.get(quality, QUALITY_PRESETS[DEFAULT_QUALITY])
     pipeline = _load_mirror_pipeline()
     job_id = job_id or uuid.uuid4().hex
     out_dir = OUTPUT_DIR / job_id / "reconstruction"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    pipeline(str(images_dir), output_path=str(out_dir))
+    pipeline(
+        str(images_dir),
+        output_path=str(out_dir),
+        target_size=preset["target_size"],
+        enable_bf16=preset["bf16"],
+        disable_heads=preset["disable_heads"] or None,
+        compress_pts=True,
+        save_depth=True,
+        save_normal="normal" not in preset["disable_heads"],
+        save_gs="gs" not in preset["disable_heads"],
+        save_camera=True,
+        save_points="points" not in preset["disable_heads"],
+    )
     return out_dir
 
 
