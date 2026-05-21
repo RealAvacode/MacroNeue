@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import Image from "next/image";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -57,6 +56,116 @@ function Spinner() {
   );
 }
 
+// ─── Image thumbnail grid ─────────────────────────────────────────────────────
+
+interface ImageGridProps {
+  previews: string[];
+  onRemove: (index: number) => void;
+  onAdd: () => void;
+  onDrop: (e: React.DragEvent) => void;
+  dragOver: boolean;
+  onDragOver: (e: React.DragEvent) => void;
+  onDragLeave: () => void;
+}
+
+function ImageGrid({ previews, onRemove, onAdd, onDrop, dragOver, onDragOver, onDragLeave }: ImageGridProps) {
+  if (previews.length === 0) {
+    return (
+      <div
+        className="rounded-lg flex flex-col items-center justify-center cursor-pointer transition-all mb-4"
+        style={{
+          border: `2px dashed ${dragOver ? "#4f46e5" : "#2d2f45"}`,
+          background: dragOver ? "rgba(79,70,229,0.06)" : "#12141f",
+          minHeight: 160,
+        }}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+        onClick={onAdd}
+      >
+        <svg className="w-10 h-10 mb-2 opacity-40" fill="none" stroke="#a5b4fc" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+            d="M4 16l4-4a3 3 0 014 0l4 4M14 12l2-2a3 3 0 014 0l2 2M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+        </svg>
+        <p className="text-sm text-[#4a4e6e]">Drop images or click to upload</p>
+        <p className="text-xs text-[#3d4166] mt-1">JPG, PNG, WEBP — multiple allowed</p>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="mb-4 rounded-lg p-2 transition-all"
+      style={{
+        background: dragOver ? "rgba(79,70,229,0.06)" : "#12141f",
+        border: `1px solid ${dragOver ? "#4f46e5" : "#2d2f45"}`,
+      }}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
+      {/* Count row */}
+      <div className="flex items-center justify-between mb-2 px-1">
+        <span className="text-xs text-[#6366f1] font-medium">
+          {previews.length} image{previews.length !== 1 ? "s" : ""} · first used for panorama
+        </span>
+        <button
+          className="text-xs text-[#4a4e6e] hover:text-[#a5b4fc] transition-colors"
+          onClick={onAdd}
+        >
+          + Add more
+        </button>
+      </div>
+
+      {/* Thumbnail grid */}
+      <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(88px, 1fr))" }}>
+        {previews.map((src, i) => (
+          <div key={src} className="relative group rounded-md overflow-hidden" style={{ aspectRatio: "1", background: "#0c0e18" }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={src} alt={`Scene ${i + 1}`} className="w-full h-full object-cover" />
+
+            {/* Primary badge */}
+            {i === 0 && (
+              <span className="absolute bottom-1 left-1 text-[9px] font-bold bg-[#4f46e5] text-white rounded px-1 py-0.5 leading-none">
+                PRIMARY
+              </span>
+            )}
+
+            {/* Remove button */}
+            <button
+              className="absolute top-1 right-1 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+              style={{ background: "rgba(0,0,0,0.75)", width: 20, height: 20 }}
+              onClick={(e) => { e.stopPropagation(); onRemove(i); }}
+              title="Remove"
+            >
+              <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        ))}
+
+        {/* Add tile */}
+        <button
+          className="rounded-md flex flex-col items-center justify-center transition-colors cursor-pointer"
+          style={{
+            aspectRatio: "1",
+            background: "#1a1d2e",
+            border: "1px dashed #2d2f45",
+          }}
+          onClick={onAdd}
+          onMouseEnter={(e) => (e.currentTarget.style.borderColor = "#4f46e5")}
+          onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#2d2f45")}
+        >
+          <svg className="w-5 h-5 text-[#4a4e6e]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main component ──────────────────────────────────────────────────────────
 
 export default function Home() {
@@ -64,8 +173,8 @@ export default function Home() {
   const [prompt, setPrompt] = useState("");
   const [seed, setSeed] = useState(42);
   const [steps, setSteps] = useState(30);
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
+  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [panoramaUrl, setPanoramaUrl] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
@@ -77,36 +186,45 @@ export default function Home() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const logRef = useRef<HTMLPreElement>(null);
 
-  // ── Image drop ────────────────────────────────────────────────────────────
-  const handleFile = useCallback((file: File) => {
-    setImageFile(file);
-    const url = URL.createObjectURL(file);
-    setImagePreview(url);
+  // ── Multi-image handling ──────────────────────────────────────────────────
+  const addFiles = useCallback((incoming: FileList | File[]) => {
+    const valid = Array.from(incoming).filter((f) => f.type.startsWith("image/"));
+    if (!valid.length) return;
+    setImageFiles((prev) => [...prev, ...valid]);
+    setImagePreviews((prev) => [...prev, ...valid.map((f) => URL.createObjectURL(f))]);
     setStage("idle");
     setPanoramaUrl(null);
     setJobId(null);
     setWgStatus(null);
   }, []);
 
+  const removeImage = useCallback((index: number) => {
+    setImageFiles((prev) => prev.filter((_, i) => i !== index));
+    setImagePreviews((prev) => {
+      URL.revokeObjectURL(prev[index]);
+      return prev.filter((_, i) => i !== index);
+    });
+  }, []);
+
   const onDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
       setDragOver(false);
-      const file = e.dataTransfer.files[0];
-      if (file && file.type.startsWith("image/")) handleFile(file);
+      addFiles(e.dataTransfer.files);
     },
-    [handleFile]
+    [addFiles]
   );
 
   // ── Generate panorama ─────────────────────────────────────────────────────
   async function generatePanorama() {
-    if (!imageFile) return;
+    if (!imageFiles.length) return;
     setStage("generating-panorama");
     setPanoramaUrl(null);
     setPanoNote(null);
 
     const fd = new FormData();
-    fd.append("image", imageFile);
+    imageFiles.forEach((f, i) => fd.append(`image_${i}`, f));
+    fd.append("imageCount", String(imageFiles.length));
     fd.append("prompt", prompt);
     fd.append("seed", String(seed));
     fd.append("steps", String(steps));
@@ -145,22 +263,24 @@ export default function Home() {
 
   // Auto-scroll log
   useEffect(() => {
-    if (logRef.current) {
-      logRef.current.scrollTop = logRef.current.scrollHeight;
-    }
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [wgStatus?.log]);
 
-  // Cleanup on unmount
-  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+  // Cleanup object URLs and poll on unmount
+  useEffect(() => {
+    return () => {
+      imagePreviews.forEach((u) => URL.revokeObjectURL(u));
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const busy = stage === "generating-panorama" || stage === "worldgen-running";
 
   // ─── UI ──────────────────────────────────────────────────────────────────
   return (
     <>
-      <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
-      `}</style>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
       <div className="min-h-screen" style={{ background: "#0f1117", color: "#e0e7ff" }}>
         {/* Header */}
@@ -170,13 +290,10 @@ export default function Home() {
         >
           <div className="max-w-5xl mx-auto flex items-start justify-between flex-wrap gap-4">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight text-[#e0e7ff] mb-1">
-                🌍 MacroNeue
-              </h1>
+              <h1 className="text-3xl font-bold tracking-tight text-[#e0e7ff] mb-1">🌍 MacroNeue</h1>
               <p className="text-[#a5b4fc] text-sm">
-                World generation powered by{" "}
-                <strong>HY-World-2.0</strong> (Tencent Hunyuan) — turn images
-                and text into explorable 3D worlds.
+                World generation powered by <strong>HY-World-2.0</strong> (Tencent Hunyuan) — turn
+                images and text into explorable 3D worlds.
               </p>
             </div>
             <span className="text-xs bg-[#1e1b4b] border border-[#4f46e5] text-[#a5b4fc] rounded-full px-3 py-1 self-start mt-1">
@@ -185,37 +302,30 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Pipeline overview */}
+        {/* Pipeline breadcrumb */}
         <div className="max-w-5xl mx-auto px-4 mb-6">
           <div className="flex gap-2 flex-wrap text-xs text-[#a5b4fc]">
-            {["1. Upload Image", "2. Generate Panorama", "3. Build 3D World", "4. Download Assets"].map(
-              (s, i) => (
+            {["1. Upload Images", "2. Generate Panorama", "3. Build 3D World", "4. Download Assets"].map((s, i) => {
+              const active =
+                (i === 0 && stage !== "idle") ||
+                (i === 1 && ["panorama-ready", "worldgen-running", "worldgen-done"].includes(stage)) ||
+                (i === 2 && ["worldgen-running", "worldgen-done"].includes(stage)) ||
+                (i === 3 && stage === "worldgen-done");
+              return (
                 <div key={i} className="flex items-center gap-2">
                   {i > 0 && <span className="text-[#3d4166]">→</span>}
                   <span
-                    className="px-2 py-1 rounded"
+                    className="px-2 py-1 rounded transition-all"
                     style={{
-                      background:
-                        (i === 0 && stage !== "idle") ||
-                        (i === 1 && ["panorama-ready", "worldgen-running", "worldgen-done"].includes(stage)) ||
-                        (i === 2 && ["worldgen-running", "worldgen-done"].includes(stage)) ||
-                        (i === 3 && stage === "worldgen-done")
-                          ? "#312e81"
-                          : "#1a1d2e",
-                      border:
-                        (i === 0 && stage !== "idle") ||
-                        (i === 1 && ["panorama-ready", "worldgen-running", "worldgen-done"].includes(stage)) ||
-                        (i === 2 && ["worldgen-running", "worldgen-done"].includes(stage)) ||
-                        (i === 3 && stage === "worldgen-done")
-                          ? "1px solid #4f46e5"
-                          : "1px solid #2d2f45",
+                      background: active ? "#312e81" : "#1a1d2e",
+                      border: `1px solid ${active ? "#4f46e5" : "#2d2f45"}`,
                     }}
                   >
                     {s}
                   </span>
                 </div>
-              )
-            )}
+              );
+            })}
           </div>
         </div>
 
@@ -226,45 +336,25 @@ export default function Home() {
           <Card>
             <StageBadge>Stage 1 – Input</StageBadge>
 
-            {/* Drop zone */}
-            <div
-              className={`relative rounded-lg overflow-hidden mb-4 cursor-pointer transition-all ${dragOver ? "ring-2 ring-indigo-500" : ""}`}
-              style={{
-                border: "2px dashed",
-                borderColor: dragOver ? "#4f46e5" : "#2d2f45",
-                background: dragOver ? "rgba(79,70,229,0.06)" : "#12141f",
-                minHeight: 180,
-              }}
+            {/* Hidden file input — multiple */}
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ""; }}
+            />
+
+            <ImageGrid
+              previews={imagePreviews}
+              onRemove={removeImage}
+              onAdd={() => fileRef.current?.click()}
+              onDrop={onDrop}
+              dragOver={dragOver}
               onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
               onDragLeave={() => setDragOver(false)}
-              onDrop={onDrop}
-              onClick={() => fileRef.current?.click()}
-            >
-              <input
-                ref={fileRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
-              />
-              {imagePreview ? (
-                <Image
-                  src={imagePreview}
-                  alt="Scene preview"
-                  fill
-                  className="object-cover"
-                />
-              ) : (
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-[#4a4e6e]">
-                  <svg className="w-10 h-10 mb-2 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                      d="M4 16l4-4a3 3 0 014 0l4 4M14 12l2-2a3 3 0 014 0l2 2M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                  <p className="text-sm">Drop an image or click to upload</p>
-                  <p className="text-xs mt-1 opacity-60">JPG, PNG, WEBP…</p>
-                </div>
-              )}
-            </div>
+            />
 
             {/* Prompt */}
             <label className="block text-xs text-[#a5b4fc] mb-1 font-medium">
@@ -300,10 +390,7 @@ export default function Home() {
                 <div className="flex items-center gap-3">
                   <label className="text-xs text-[#a5b4fc] w-20">Steps</label>
                   <input
-                    type="range"
-                    min={10}
-                    max={80}
-                    value={steps}
+                    type="range" min={10} max={80} value={steps}
                     onChange={(e) => setSteps(Number(e.target.value))}
                     className="flex-1"
                   />
@@ -316,10 +403,10 @@ export default function Home() {
               className="w-full py-2.5 rounded-lg font-semibold text-sm text-white transition-opacity"
               style={{
                 background: "linear-gradient(135deg,#4f46e5,#7c3aed)",
-                opacity: (!imageFile || busy) ? 0.4 : 1,
-                cursor: (!imageFile || busy) ? "not-allowed" : "pointer",
+                opacity: (!imageFiles.length || busy) ? 0.4 : 1,
+                cursor: (!imageFiles.length || busy) ? "not-allowed" : "pointer",
               }}
-              disabled={!imageFile || busy}
+              disabled={!imageFiles.length || busy}
               onClick={generatePanorama}
             >
               {stage === "generating-panorama" ? (
@@ -400,25 +487,14 @@ export default function Home() {
 
               <div className="flex items-center justify-between mb-2">
                 <p className="text-sm text-[#a5b4fc]">
-                  {stage === "worldgen-done"
-                    ? "✓ Complete"
-                    : `Running: ${wgStatus.stageName}`}
+                  {stage === "worldgen-done" ? "✓ Complete" : `Running: ${wgStatus.stageName}`}
                 </p>
-                <span className="text-xs text-[#6366f1]">
-                  {Math.round(wgStatus.overallProgress * 100)}%
-                </span>
+                <span className="text-xs text-[#6366f1]">{Math.round(wgStatus.overallProgress * 100)}%</span>
               </div>
               <ProgressBar value={wgStatus.overallProgress} />
 
-              {/* Stage chips */}
               <div className="flex gap-2 flex-wrap mt-4 mb-4">
-                {[
-                  "Trajectory Planning",
-                  "Point-Cloud Rendering",
-                  "Video Synthesis",
-                  "3DGS Extraction",
-                  "World Trainer",
-                ].map((s, i) => {
+                {["Trajectory Planning", "Point-Cloud Rendering", "Video Synthesis", "3DGS Extraction", "World Trainer"].map((s, i) => {
                   const done = i < wgStatus.stage || stage === "worldgen-done";
                   const active = i === wgStatus.stage && stage !== "worldgen-done";
                   return (
@@ -437,17 +513,10 @@ export default function Home() {
                 })}
               </div>
 
-              {/* Log */}
               <pre
                 ref={logRef}
                 className="text-xs rounded-lg p-3 overflow-auto"
-                style={{
-                  background: "#0c0e18",
-                  border: "1px solid #2d2f45",
-                  color: "#6ee7b7",
-                  maxHeight: 200,
-                  fontFamily: "monospace",
-                }}
+                style={{ background: "#0c0e18", border: "1px solid #2d2f45", color: "#6ee7b7", maxHeight: 200, fontFamily: "monospace" }}
               >
                 {wgStatus.log}
               </pre>
@@ -470,17 +539,9 @@ export default function Home() {
                   <button
                     key={out.name}
                     className="flex flex-col items-center justify-center gap-2 rounded-lg py-5 transition-all"
-                    style={{
-                      background: "#12141f",
-                      border: "1px solid #2d2f45",
-                      cursor: "pointer",
-                    }}
-                    onMouseEnter={(e) =>
-                      (e.currentTarget.style.borderColor = "#4f46e5")
-                    }
-                    onMouseLeave={(e) =>
-                      (e.currentTarget.style.borderColor = "#2d2f45")
-                    }
+                    style={{ background: "#12141f", border: "1px solid #2d2f45", cursor: "pointer" }}
+                    onMouseEnter={(e) => (e.currentTarget.style.borderColor = "#4f46e5")}
+                    onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#2d2f45")}
                   >
                     <svg className="w-7 h-7 text-[#6366f1]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -493,7 +554,8 @@ export default function Home() {
               </div>
 
               <p className="text-xs text-[#4a4e6e] mt-4 text-center">
-                Prototype — download buttons are illustrative. Real files are written to <code>outputs/</code> on the GPU server.
+                Prototype — download buttons are illustrative. Real files are written to{" "}
+                <code>outputs/</code> on the GPU server.
               </p>
             </Card>
           </div>

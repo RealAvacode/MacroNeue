@@ -2,12 +2,14 @@
  * POST /api/generate
  *
  * Accepts a multipart form with:
- *   image  – the uploaded scene image (File)
- *   prompt – text description of the scene
- *   seed   – integer seed
- *   steps  – diffusion steps
+ *   image_0…image_N – uploaded scene images (File); first is primary for HY-Pano-2
+ *   imageCount       – total number of images
+ *   prompt           – text description of the scene
+ *   seed             – integer seed
+ *   steps            – diffusion steps
  *
- * In production this would forward to a GPU backend running HY-Pano-2.
+ * In production: forward image_0 + prompt to a GPU server running HY-Pano-2 for the
+ * panorama, and pass all images to WorldMirror-2 for multi-view 3D reconstruction.
  * For the prototype it returns a placeholder panorama SVG.
  */
 
@@ -17,6 +19,10 @@ import { randomUUID } from "crypto";
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
   const prompt = (formData.get("prompt") as string) || "";
+  const imageCount = parseInt((formData.get("imageCount") as string) || "1", 10);
+  // In production: collect all images for WorldMirror multi-view reconstruction
+  // const images = Array.from({ length: imageCount }, (_, i) => formData.get(`image_${i}`) as File);
+  void imageCount;
 
   // Production: forward image + prompt to GPU inference server running HY-Pano-2
   // and await the 360° equirectangular panorama image back.
